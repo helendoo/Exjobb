@@ -1,89 +1,142 @@
-from llama_index.core import VectorStoreIndex, Document, Settings, StorageContext, load_index_from_storage
+from llama_index.core import VectorStoreIndex, Document, Settings
 from llama_index.embeddings.huggingface import HuggingFaceEmbedding
 from langchain_groq import ChatGroq
 from langgraph.graph import StateGraph, END
 from typing import TypedDict, Optional
+from basicRCA import rootAnalysis
 import pandas as pd
 import os
-import re
 
-# === Set API Key and Model ===
-os.environ["GROQ_API_KEY"] = "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"
+#langGraph Framework + groq + Ollama
+
+
+# LLM 
+os.environ["GROQ_API_KEY"] = "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"  
 llm = ChatGroq(model="llama-3.3-70b-versatile", verbose=True)
+
+# Embedding 
 Settings.embed_model = HuggingFaceEmbedding(model_name="sentence-transformers/all-MiniLM-L6-v2")
 
-# === Load error knowledge base ===
-system_prompt = (
-    "Only answer using the provided context. If uncertain, say 'I don't know.' "
-    "Answer questions strictly related to machine faults, error codes, or anomaly explanations."
-)
+csvDF = pd.read_csv("C:/Users/wazzu/LLM/epirocData/delays.csv")
+csvDocuments = [Document(text=row.to_string()) for _, row in csvDF.iterrows()]
+csvIndex = VectorStoreIndex.from_documents(csvDocuments)
 
-storage_context = StorageContext.from_defaults(persist_dir="combined_index")
-combined_index = load_index_from_storage(storage_context)
-chat_engine = combined_index.as_chat_engine(chat_mode="context", llm=llm, system_prompt=system_prompt)
+csvChat_engine = csvIndex.as_chat_engine(
+    chat_mode="context",
+    llm=llm)
 
 
+with open("C:/Users/wazzu/LLM/data/expertInterviewTest.txt", "r", encoding="utf-8") as f:
+    expertInterviews = f.read()
+expertDocuments = [Document(text=expertInterviews)]
+expertIndex = VectorStoreIndex.from_documents(expertDocuments)
+
+expertChat_engine = expertIndex.as_chat_engine(
+    chat_mode="context",
+    llm=llm)
 
 
+with open("C:/Users/wazzu/LLM/data/operatorInterview.txt", "r", encoding="utf-8") as f:
+    operatorInterviews = f.read()
+operatorDocuments = [Document(text=operatorInterviews)]
+operatorIndex = VectorStoreIndex.from_documents(operatorDocuments)
+
+operatorChat_engine = operatorIndex.as_chat_engine(
+    chat_mode="context",
+    llm=llm)
 
 
-# === Load anomaly list for display ===
-try:
-    anomaly_df = pd.read_csv("MWD_Anomaly_Results.csv")
-    anomalies = anomaly_df[anomaly_df['anomaly_label'] == 1][['Hole ID', 'Start Hole Time']].head()
-except Exception:
-    anomalies = None
-
-# === LangGraph Chat State ===
+# State Schema 
 class ChatState(TypedDict):
     user_input: Optional[str]
     response: Optional[str]
+    root_cause_result: Optional[str]
     end: Optional[bool]
 
-# === Node: User Input ===
+def get_csv_info(query: str) -> str:
+    response = csvChat_engine.chat(query)
+    return response.response
+
+def get_expert_info(query: str) -> str:
+    response = expertChat_engine.chat(query)
+    return response.response   
+
+def get_operator_info(query: str) -> str:
+    response = operatorChat_engine.chat(query)
+    return response.response 
+# Graph Nodes 
+
+def root_cause_node(state: ChatState) -> ChatState:
+    root_cause_data = rootAnalysis("C:/Users/wazzu/LLM/data/errors.csv")
+    return {"root_cause_result": root_cause_data}
+   
 def ask_node(state: ChatState) -> ChatState:
     user_input = input("You: ")
     if user_input.lower() == "q":
         return {"user_input": None, "end": True}
     return {"user_input": user_input, "end": False}
 
-# === Node: Handle Chat and Special Commands ===
 def chat_node(state: ChatState) -> ChatState:
     if state["user_input"] is None:
         return state
+    
+    csvInfo = get_csv_info(state["user_input"])
+    expertInfo = get_expert_info(state["user_input"])
+    operatorInfo = get_operator_info(state["user_input"])
+    rootCauseSummary = state.get("root_cause_analysis", "No root cause analysis available.")
 
-    user_input = state["user_input"].strip().lower()
+    finalPrompt = f"""
 
-    if user_input == "/show anomalies":
-        if anomalies is not None and not anomalies.empty:
-            print("\n\U0001F4CD Recent anomalies:")
-            for _, row in anomalies.iterrows():
-                print(f"- Hole ID {int(row['Hole ID'])} at {row['Start Hole Time']}")
-        else:
-            print("No anomaly data available.")
-        return {"response": "", "end": False}
+Error Data:
+{csvInfo}
+
+Expert Knowledge:
+{expertInfo}
+
+Operator Knowledge:
+{operatorInfo}
+
+Root Cause Analysis:
+{rootCauseSummary}
+
+User Query:
+{state['user_input']}
+
+Based on the Error data, expert advice, operator advice and root cause analysis, 
+diagnose the problem and suggest next actions based on the given information. DONT give suggestions to irrelevant questions 
+""" 
+    response = llm.invoke(finalPrompt)   
+    return {"response": response.content}
 
 
-    # Fall back to original error knowledge base
-    response = chat_engine.chat(state["user_input"])
-    return {"response": response.response}
-
-# === Node: Show Response ===
 def respond_node(state: ChatState) -> ChatState:
+    if state.get("end"): 
+        return state
     if state.get("response"):
         print("Bot:", state["response"])
     return {}
 
-# === LangGraph Definition ===
+# Build Graph
 builder = StateGraph(ChatState)
+
 builder.add_node("ask", ask_node)
+builder.add_node("root_cause", root_cause_node)
 builder.add_node("chat", chat_node)
 builder.add_node("respond", respond_node)
+
 builder.set_entry_point("ask")
 builder.add_edge("ask", "chat")
+builder.add_edge("root_cause", "chat")
 builder.add_edge("chat", "respond")
 builder.add_conditional_edges("respond", lambda s: "END" if s.get("end") else "ask", {"ask": "ask", "END": END})
 
-# === Run the Graph ===
+
 graph = builder.compile()
-graph.invoke({})
+graph.invoke({
+    "user_input": None,
+    "response": None,
+    "root_cause_result": None,
+    "end": False
+})
+
+

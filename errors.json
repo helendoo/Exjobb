@@ -1,0 +1,15 @@
+[
+  {
+    "error": "E209",
+    "problem": "Machine stopped moving",
+    "causes": ["Safety sensor blocked", "Emergency stop triggered"],
+    "solution": "Clean the sensor or reset the emergency stop."
+  },
+  {
+    "error": "E310",
+    "problem": "Low hydraulic pressure",
+    "causes": ["Fluid level low"],
+    "solution": "Refill the hydraulic fluid."
+  }
+]
+  

@@ -22,6 +22,7 @@ mwd_columns = [
 
 # === Clean and split DQL data ===
 dql_numeric = dql_log[dql_columns].dropna().copy()
+dql_metadata = dql_log[['holeName', 'startHoleTime']] 
 
 # === Clean and split MWD data ===
 mwd_numeric = mwd_log[mwd_columns].dropna().copy()
@@ -42,8 +43,16 @@ mwd_numeric['anomaly_label'] = pca_mwd.labels_
 # === Combine MWD with metadata ===
 mwd_full = pd.concat([mwd_metadata, mwd_numeric.reset_index(drop=True)], axis=1)
 
-# === Save anomaly results ===
+# === Save MWD anomaly results ===
 mwd_full.to_csv("MWD_Anomaly_Results.csv", index=False)
+mwd_anomalies_only = mwd_full[mwd_full['anomaly_label'] == 1]
+mwd_anomalies_only.to_csv("MWD_Only_Anomalies.csv", index=False)
+
+# === Save DQL anomaly results === #
+dql_full = pd.concat([dql_metadata.reset_index(drop=True), dql_numeric.reset_index(drop=True)], axis=1)
+dql_anomalies_only = dql_full[dql_full['anomaly_label'] == 1]
+dql_anomalies_only.to_csv("DQL_Only_Anomalies.csv", index=False)
+
 
 # === t-SNE Visualization for DQL ===
 tsne_dql = TSNE(n_components=2, random_state=42)
@@ -71,6 +80,3 @@ plt.grid(True)
 plt.tight_layout()
 plt.show()
 
-# === Optional: Print sample anomalies ===
-print("\nTop MWD anomalies with timestamps:")
-print(mwd_full[mwd_full['anomaly_label'] == 1].head())

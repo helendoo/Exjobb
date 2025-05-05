@@ -1,6 +1,7 @@
 from llama_index.core import VectorStoreIndex, Document, Settings
 from llama_index.embeddings.huggingface import HuggingFaceEmbedding
 from langchain_groq import ChatGroq
+from llama_index.llms.langchain import LangChainLLM
 import pandas as pd
 import os
 
@@ -9,17 +10,16 @@ import os
 os.environ["GROQ_API_KEY"] = "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"  
 
 # Groq LLM via LangChain
-llm = ChatGroq(
+llm = LangChainLLM(llm=ChatGroq(
     model="llama-3.3-70b-versatile",
     verbose=True,
-)
+))
 
 # HuggingFace for local embedding 
-embed_model = HuggingFaceEmbedding(model_name="sentence-transformers/all-MiniLM-L6-v2")
-Settings.embed_model = embed_model
+Settings.embed_model = HuggingFaceEmbedding(model_name="sentence-transformers/all-MiniLM-L6-v2")
 
 #Load CSV data
-df = pd.read_csv("errors.csv")
+df = pd.read_csv("C:/Users/wazzu/LLM/data/errors.csv")
 documents = [Document(text=row.to_string()) for _, row in df.iterrows()]
 
 #Build index
